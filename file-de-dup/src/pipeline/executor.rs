@@ -1,3 +1,5 @@
+use std::ffi::OsString;
+
 /// Pipelined execution of various stages to find duplicates of files.
 /// 
 ///   ┌─────────────┐       ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
@@ -20,8 +22,8 @@
 /// into executing them parallely.
 
 use crate::pipeline::aggregator::Aggregator;
-
 use super::{checksum::Checksum, filecompare::FileCompare, walker::Walker};
+use crossbeam_channel::unbounded;
 
 pub struct Executor {
     full_path: &'static str,
@@ -62,7 +64,8 @@ impl Executor {
     }
 
     pub fn execute(&self) {
-        let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads);
+        let (mut s1, mut r1) = unbounded::<OsString>();
+        let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, s1);
         let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads);
         let mut checksum = Checksum::new(self.num_threads, self.do_full_comparison);
         let mut file_compare = FileCompare::new(self.num_threads);
