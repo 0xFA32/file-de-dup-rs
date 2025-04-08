@@ -21,8 +21,4 @@ impl PipelineStage for FileCompare {
     fn is_completed(&self) -> bool {
         true
     }
-
-    fn progress(&self) -> String {
-        "hello".to_string()
-    }    
 }

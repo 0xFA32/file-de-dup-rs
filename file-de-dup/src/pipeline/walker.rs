@@ -34,7 +34,10 @@ impl Walker {
 
             let p = path.ok().unwrap();
             if p.path().is_file() {
-                let res = self.next_stage_channel.send(p.file_name());
+                let res =
+                    self
+                        .next_stage_channel
+                        .send(fs::canonicalize(p.path()).unwrap().into_os_string());
                 if res.is_err() {
                     eprintln!("Error sending file name to next stage!");
                     return;
@@ -44,11 +47,14 @@ impl Walker {
     }
 
     fn walk_recursive(&self, path_bufs: Vec<PathBuf>) {
-        path_bufs.into_par_iter().for_each_with(self.next_stage_channel.clone(), |s, x| {
-            if x.is_file() {
-                let _ = s.send(x.file_name().unwrap().to_os_string());
+        path_bufs.into_par_iter().for_each_with(self.next_stage_channel.clone(), |ch, p| {
+            if p.is_file() {
+                let res = ch.send(fs::canonicalize(p).unwrap().into_os_string());
+                if res.is_err() {
+                    eprintln!("Error sending file name to next stage!");
+                }
             } else {
-                let paths = fs::read_dir(x).unwrap();
+                let paths = fs::read_dir(p).unwrap();
                 let bufs: Vec<PathBuf> = paths
                     .filter_map(|entry| entry.ok())
                     .map(|entry| entry.path())
@@ -83,10 +89,6 @@ impl PipelineStage for Walker {
     
     fn is_completed(&self) -> bool {
         true
-    }
-
-    fn progress(&self) -> String {
-        "hello".to_string()
     }
 }
 

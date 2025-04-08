@@ -21,7 +21,7 @@ use std::ffi::OsString;
 /// In the initial version we can have each stage execute serially. In the later stages we can look 
 /// into executing them parallely.
 
-use crate::pipeline::aggregator::Aggregator;
+use crate::{pipeline::aggregator::Aggregator, report::Report};
 use super::{checksum::Checksum, filecompare::FileCompare, walker::Walker};
 use crossbeam_channel::unbounded;
 
@@ -40,10 +40,6 @@ pub trait PipelineStage {
     
     /// Returns true if the stage is completed. False, otherwise.
     fn is_completed(&self) -> bool;
-
-    /// Returns the progress of the stage. Used to display the progress
-    /// while the tool is running.
-    fn progress(&self) -> String;
 }
 
 impl Executor {
@@ -64,8 +60,27 @@ impl Executor {
     }
 
     pub fn execute(&self) {
+        let mut report = Report::new();
         let (mut s1, mut r1) = unbounded::<OsString>();
         let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, s1);
+        walker.execute();
+        let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads, r1);
+        agg.execute();
+        let iterator = agg.aggregated_files.iter();
+        for it in iterator {
+            let files = it.value();
+
+            report.add(files);
+            /*
+            if files.len() == 1 {
+                report.add(files);
+            } else {
+
+            }*/
+        }
+
+        report.display();
+        /*
         let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads);
         let mut checksum = Checksum::new(self.num_threads, self.do_full_comparison);
         let mut file_compare = FileCompare::new(self.num_threads);
@@ -80,6 +95,6 @@ impl Executor {
         println!("Current progress = {}", checksum.progress());
 
         file_compare.execute();
-        println!("Current progress = {}", file_compare.progress());
+        println!("Current progress = {}", file_compare.progress());*/
     }
 }
