@@ -53,7 +53,8 @@ impl<'a> Aggregator<'a> {
                 self.aggregated_files.entry(metadata.clone())
                     .and_modify(|v| {
                         if v.len() > AGGREGATE_LIMIT {
-                            self.next_stage_channel.send(Arc::new(AggregateFiles { 
+                            // TODO: Handle result.
+                            let _ = self.next_stage_channel.send(Arc::new(AggregateFiles { 
                                 file_metdata: metadata.clone(),
                                 file_names: std::mem::replace(v, vec![p.clone()])
                             }));
