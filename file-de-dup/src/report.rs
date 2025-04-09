@@ -1,7 +1,7 @@
-use std::ffi::OsString;
+use std::{ffi::OsString, sync::Arc};
 
 pub struct Report {
-    de_duped_files: Vec<Vec<OsString>>,
+    de_duped_files: Vec<Vec<Arc<OsString>>>,
 }
 
 impl Report {
@@ -11,7 +11,7 @@ impl Report {
         }
     }
 
-    pub fn add(&mut self, files: &Vec<OsString>) {
+    pub fn add(&mut self, files: &Vec<Arc<OsString>>) {
         self.de_duped_files.push(files.to_vec());
     }
 

@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::{ffi::OsString, sync::Arc};
 
 /// Pipelined execution of various stages to find duplicates of files.
 /// 
@@ -61,13 +61,13 @@ impl Executor {
 
     pub fn execute(&self) {
         let mut report = Report::new();
-        let (mut walker_sender_chan, mut walker_receiver_chan) = unbounded::<OsString>();
-        let (mut agg_sender_chan, mut agg_receiver_chan) = unbounded::<AggregateFiles>();
+        let (mut walker_sender_chan, mut walker_receiver_chan) = unbounded::<Arc<OsString>>();
+        let (mut agg_sender_chan, mut agg_receiver_chan) = unbounded::<Arc<AggregateFiles>>();
         let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, walker_sender_chan);
         walker.execute();
         let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads, walker_receiver_chan, agg_sender_chan);
         agg.execute();
-        let iterator: Vec<AggregateFiles> = agg_receiver_chan.try_iter().collect();
+        let iterator: Vec<Arc<AggregateFiles>> = agg_receiver_chan.try_iter().collect();
 
         for ag in iterator {
             let files = &ag.file_names;
@@ -102,6 +102,11 @@ pub struct FileMetadata {
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct AggregateFiles {
-    pub file_metdata: FileMetadata,
-    pub file_names: Vec<OsString>,
+    pub file_metdata: Arc<FileMetadata>,
+    pub file_names: Vec<Arc<OsString>>,
+}
+
+pub struct AggregatedFilesChecksum {
+    pub aggregated_files: Arc<AggregateFiles>,
+    pub checksum: u64,
 }

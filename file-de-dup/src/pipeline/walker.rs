@@ -1,13 +1,13 @@
 use super::executor::PipelineStage;
 use crossbeam_channel::{Sender, Receiver};
-use std::{ffi::OsString, fs, path::PathBuf};
+use std::{ffi::OsString, fs, path::PathBuf, sync::Arc};
 use rayon::prelude::*;
 
 pub struct Walker {
     full_path: &'static str,
     recursive: bool,
     num_threads: usize,
-    next_stage_channel: Sender<OsString>
+    next_stage_channel: Sender<Arc<OsString>>
 }
 
 impl Walker {
@@ -15,7 +15,7 @@ impl Walker {
         full_path: &'static str,
         recursive: bool,
         num_threads: usize,
-        next_stage_channel: Sender<OsString>,
+        next_stage_channel: Sender<Arc<OsString>>,
     ) -> Walker {
         Self {
             full_path,
@@ -37,7 +37,7 @@ impl Walker {
                 let res =
                     self
                         .next_stage_channel
-                        .send(fs::canonicalize(p.path()).unwrap().into_os_string());
+                        .send(Arc::new(fs::canonicalize(p.path()).unwrap().into_os_string()));
                 if res.is_err() {
                     eprintln!("Error sending file name to next stage!");
                     return;
@@ -49,7 +49,7 @@ impl Walker {
     fn walk_recursive(&self, path_bufs: Vec<PathBuf>) {
         path_bufs.into_par_iter().for_each_with(self.next_stage_channel.clone(), |ch, p| {
             if p.is_file() {
-                let res = ch.send(fs::canonicalize(p).unwrap().into_os_string());
+                let res = ch.send(Arc::new(fs::canonicalize(p).unwrap().into_os_string()));
                 if res.is_err() {
                     eprintln!("Error sending file name to next stage!");
                 }

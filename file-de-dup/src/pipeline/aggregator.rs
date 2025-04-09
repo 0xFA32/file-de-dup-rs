@@ -1,4 +1,4 @@
-use std::{ffi::OsString, fs};
+use std::{ffi::OsString, fs, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
 use dashmap::DashMap;
@@ -13,17 +13,17 @@ const AGGREGATE_LIMIT: usize = usize::MAX;
 pub struct Aggregator<'a> {
     filter_file_types: &'a Option<Vec<String>>,
     num_threads: usize,
-    prev_stage_channel: Receiver<OsString>,
-    aggregated_files: DashMap<FileMetadata, Vec<OsString>>,
-    next_stage_channel: Sender<AggregateFiles>
+    prev_stage_channel: Receiver<Arc<OsString>>,
+    aggregated_files: DashMap<Arc<FileMetadata>, Vec<Arc<OsString>>>,
+    next_stage_channel: Sender<Arc<AggregateFiles>>
 }
 
 impl<'a> Aggregator<'a> {
     pub fn new(
         filter_file_types: &'a Option<Vec<String>>,
         num_threads: usize,
-        prev_stage_channel: Receiver<OsString>,
-        next_stage_channel: Sender<AggregateFiles>,
+        prev_stage_channel: Receiver<Arc<OsString>>,
+        next_stage_channel: Sender<Arc<AggregateFiles>>,
     ) -> Aggregator<'a> {
         Self {
             filter_file_types,
@@ -34,16 +34,16 @@ impl<'a> Aggregator<'a> {
         }
     }
 
-    fn aggregate(&mut self, paths: &Vec<OsString>) -> Result<(), &'static str> {
+    fn aggregate(&mut self, paths: &Vec<Arc<OsString>>) -> Result<(), &'static str> {
         paths.into_par_iter().try_for_each(|p| {
-            let file_metadata = fs::metadata(p).unwrap();
+            let file_metadata = fs::metadata(p.as_os_str()).unwrap();
             let file_type = Self::get_file_type(p);
 
             // TODO: Filter by file type provided in the cli.
-            let metadata = FileMetadata { 
+            let metadata = Arc::new(FileMetadata { 
                 size: file_metadata.len(),
                 file_type: file_type,
-            };
+            });
 
             if AGGREGATE_LIMIT == usize::MAX {
                 self.aggregated_files.entry(metadata)
@@ -53,10 +53,10 @@ impl<'a> Aggregator<'a> {
                 self.aggregated_files.entry(metadata.clone())
                     .and_modify(|v| {
                         if v.len() > AGGREGATE_LIMIT {
-                            self.next_stage_channel.send(AggregateFiles { 
-                                file_metdata: metadata,
+                            self.next_stage_channel.send(Arc::new(AggregateFiles { 
+                                file_metdata: metadata.clone(),
                                 file_names: std::mem::replace(v, vec![p.clone()])
-                            });
+                            }));
                         } else {
                             v.push(p.clone());
                         }
@@ -76,7 +76,7 @@ impl<'a> Aggregator<'a> {
 
 impl<'a> PipelineStage for Aggregator<'a> {
     fn execute(&mut self) {
-        let files: Vec<OsString> = self.prev_stage_channel.try_iter().collect();
+        let files: Vec<Arc<OsString>> = self.prev_stage_channel.try_iter().collect();
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.num_threads)
             .build()
@@ -88,7 +88,7 @@ impl<'a> PipelineStage for Aggregator<'a> {
             return;
         }
 
-        let keys: Vec<FileMetadata> = self
+        let keys: Vec<Arc<FileMetadata>> = self
             .aggregated_files
             .iter()
             .map(|entry| entry.key().clone())
@@ -97,10 +97,10 @@ impl<'a> PipelineStage for Aggregator<'a> {
         for key in keys {
             if let Some((k, v)) = self.aggregated_files.remove(&key) {
                 let _ = self.next_stage_channel.send(
-                    AggregateFiles {
+                    Arc::new(AggregateFiles {
                         file_metdata: k,
                         file_names: v
-                    });
+                    }));
             }
         }
     }
