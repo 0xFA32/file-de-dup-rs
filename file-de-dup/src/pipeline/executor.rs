@@ -22,7 +22,7 @@ use std::ffi::OsString;
 /// into executing them parallely.
 
 use crate::{pipeline::aggregator::Aggregator, report::Report};
-use super::{checksum::Checksum, filecompare::FileCompare, walker::Walker};
+use super::{checksum::Checksum, filecompare::FileCompare, walker::{self, Walker}};
 use crossbeam_channel::unbounded;
 
 pub struct Executor {
@@ -61,22 +61,17 @@ impl Executor {
 
     pub fn execute(&self) {
         let mut report = Report::new();
-        let (mut s1, mut r1) = unbounded::<OsString>();
-        let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, s1);
+        let (mut walker_sender_chan, mut walker_receiver_chan) = unbounded::<OsString>();
+        let (mut agg_sender_chan, mut agg_receiver_chan) = unbounded::<AggregateFiles>();
+        let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, walker_sender_chan);
         walker.execute();
-        let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads, r1);
+        let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads, walker_receiver_chan, agg_sender_chan);
         agg.execute();
-        let iterator = agg.aggregated_files.iter();
-        for it in iterator {
-            let files = it.value();
+        let iterator: Vec<AggregateFiles> = agg_receiver_chan.try_iter().collect();
 
+        for ag in iterator {
+            let files = &ag.file_names;
             report.add(files);
-            /*
-            if files.len() == 1 {
-                report.add(files);
-            } else {
-
-            }*/
         }
 
         report.display();
@@ -97,4 +92,16 @@ impl Executor {
         file_compare.execute();
         println!("Current progress = {}", file_compare.progress());*/
     }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct FileMetadata {
+    pub size: u64,
+    pub file_type: u8,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+pub struct AggregateFiles {
+    pub file_metdata: FileMetadata,
+    pub file_names: Vec<OsString>,
 }
