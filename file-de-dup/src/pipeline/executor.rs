@@ -63,17 +63,19 @@ impl Executor {
         let mut report = Report::new();
         let (mut walker_sender_chan, mut walker_receiver_chan) = unbounded::<Arc<OsString>>();
         let (mut agg_sender_chan, mut agg_receiver_chan) = unbounded::<Arc<AggregateFiles>>();
+        let (mut check_sender_chan, mut check_receiver_chan) = unbounded::<Arc<AggregatedFilesChecksum>>();
         let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, walker_sender_chan);
         walker.execute();
         let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads, walker_receiver_chan, agg_sender_chan);
         agg.execute();
-        let iterator: Vec<Arc<AggregateFiles>> = agg_receiver_chan.try_iter().collect();
+        let mut checksum = Checksum::new(
+            self.num_threads,
+            self.do_full_comparison,
+            agg_receiver_chan,
+            check_sender_chan,
+            &mut report);
 
-        for ag in iterator {
-            let files = &ag.file_names;
-            report.add(files);
-        }
-
+        checksum.execute();
         report.display();
         /*
         let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads);
@@ -107,6 +109,6 @@ pub struct AggregateFiles {
 }
 
 pub struct AggregatedFilesChecksum {
-    pub aggregated_files: Arc<AggregateFiles>,
+    pub file_names: Vec<Arc<OsString>>,
     pub checksum: u64,
 }

@@ -34,7 +34,7 @@ struct Args {
     /// then the tool can use the checksum to evaluate the duplicate of files. Useful in cases
     /// we want to do a quick check of the files and we are aware of the content of the files by
     /// the name.
-    #[arg(short = 'c', long, default_value_t = true)]
+    #[arg(short = 'c', long, default_value_t = false)]
     do_full_comparison: bool,
 }
 
