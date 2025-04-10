@@ -1,4 +1,4 @@
-use std::{ffi::OsString, sync::Arc};
+use std::{collections::HashSet, ffi::OsString, sync::Arc};
 
 /// Pipelined execution of various stages to find duplicates of files.
 /// 
@@ -22,13 +22,13 @@ use std::{ffi::OsString, sync::Arc};
 /// into executing them parallely.
 
 use crate::{pipeline::aggregator::Aggregator, report::Report};
-use super::{checksum::Checksum, walker::Walker};
+use super::{checksum::Checksum, util, walker::Walker};
 use crossbeam_channel::unbounded;
 
 pub struct Executor {
     full_path: &'static str,
     recursive: bool,
-    filter_file_types: Option<Vec<String>>,
+    filter_file_types: Option<HashSet<u8>>,
     num_threads: usize,
     do_full_comparison: bool,
 }
@@ -50,12 +50,18 @@ impl Executor {
         num_threads: usize,
         do_full_comparison: bool,
     ) -> Executor {
+        let file_types: Option<HashSet<u8>> = filter_file_types
+            .map(|f|
+                f.into_iter()
+                .map(|x| util::get_file_type_from_extension(&x))
+                .collect()
+            );
         Self {
             full_path,
             recursive,
-            filter_file_types,
-            num_threads,
-            do_full_comparison,
+            filter_file_types: file_types,
+            num_threads: num_threads,
+            do_full_comparison: do_full_comparison,
         }
     }
 
