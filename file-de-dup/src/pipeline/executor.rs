@@ -22,7 +22,7 @@ use std::{ffi::OsString, sync::Arc};
 /// into executing them parallely.
 
 use crate::{pipeline::aggregator::Aggregator, report::Report};
-use super::{checksum::Checksum, filecompare::FileCompare, walker::{self, Walker}};
+use super::{checksum::Checksum, walker::Walker};
 use crossbeam_channel::unbounded;
 
 pub struct Executor {
