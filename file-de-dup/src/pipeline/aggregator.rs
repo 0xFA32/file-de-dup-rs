@@ -8,7 +8,7 @@ use super::{executor::{AggregateFiles, FileMetadata, PipelineStage}, util};
 // Aggregate these many files before sending to the next stage.
 // Set it to usize::MAX to aggregate all of the files before sending
 // to the next stage.
-const AGGREGATE_LIMIT: usize = usize::MAX;
+const AGGREGATE_LIMIT: usize = 1;
 
 pub struct Aggregator<'a> {
     filter_file_types: &'a Option<HashSet<u8>>,
@@ -60,14 +60,13 @@ impl<'a> Aggregator<'a> {
                         .and_modify(|v| {
                             if v.len() > AGGREGATE_LIMIT {
                                 let _ = self.next_stage_channel.send(Arc::new(AggregateFiles { 
-                                    file_metdata: metadata.clone(),
+                                    file_metdata: metadata,
                                     file_names: std::mem::replace(v, vec![p.clone()])
                                 }));
                             } else {
                                 v.push(p.clone());
                             }
-                        });
-                    
+                        }).or_insert_with(|| vec![p.clone()]);
                 }
             }
 
