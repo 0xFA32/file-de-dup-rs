@@ -117,4 +117,5 @@ pub struct AggregateFiles {
 pub struct AggregatedFilesChecksum {
     pub file_names: Vec<Arc<OsString>>,
     pub checksum: u64,
+    pub file_size: u64,
 }

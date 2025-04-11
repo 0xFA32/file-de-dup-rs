@@ -56,7 +56,8 @@ impl<'a> Checksum<'a> {
                                 if v.len() > AGGREGATE_LIMIT {
                                     let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum { 
                                         checksum: checksum,
-                                        file_names: std::mem::replace(v, vec![file.clone()])
+                                        file_names: std::mem::replace(v, vec![file.clone()]),
+                                        file_size: aggregate_file.file_metdata.size,
                                     }));
                                 } else {
                                     v.push(file.clone());
