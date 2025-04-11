@@ -35,28 +35,24 @@ impl<'a> Checksum<'a> {
         }
     }
 
-    fn calculate_checksum(&mut self, aggregated_files: &Vec<Arc<AggregateFiles>>) -> Result<(), &'static str> {
-        aggregated_files.into_par_iter().try_for_each(|aggregate_file| {
-
-            let res: Result<(), &'static str> = aggregate_file.file_names.par_iter().try_for_each(|file| {
+    fn calculate_checksum(&mut self, aggregated_files: &Vec<Arc<AggregateFiles>>) {
+        aggregated_files.into_par_iter().for_each(|aggregate_file| {
+            aggregate_file.file_names.par_iter().for_each(|file| {
                 let checksum = Self::calculate_checksum_file(file);
-                // println!("File name = {:?}, checksum = {}", file.as_os_str(), checksum);
-                self.aggregated_files_checksum.entry(checksum)
-                    .or_insert_with(Vec::new)
-                    .push(file.clone());
-
-                Ok(())
+                if let Some(checksum) = checksum {
+                    self.aggregated_files_checksum
+                        .entry(checksum)
+                        .or_insert_with(Vec::new)
+                        .push(file.clone());
+                }
             });
-
-            Ok(())
-        })
+        });
     }
 
-    fn calculate_checksum_file(file: &Arc<OsString>) -> u64 {
+    fn calculate_checksum_file(file: &Arc<OsString>) -> Option<u64> {
         let file = File::open(file.as_os_str());
         if file.is_err() {
-            // TODO: For now return 0;
-            return 0;
+            return None;
         }
 
         let mut reader = BufReader::new(file.unwrap());
@@ -66,20 +62,14 @@ impl<'a> Checksum<'a> {
         let mut digest = hasher.digest();
         
         loop {
-            let bytes_read = reader.read(&mut buffer);
-            if bytes_read.is_err() {
-                break;
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => digest.update(&buffer[..n]),
+                Err(_) => break,
             }
-
-            let n = bytes_read.unwrap();
-            if n == 0 {
-                break;
-            }
-
-            digest.update(&buffer[..n]);
         }
 
-        digest.finalize()
+        Some(digest.finalize())
     }
 }
 

@@ -34,15 +34,15 @@ impl<'a> Aggregator<'a> {
         }
     }
 
-    fn aggregate(&mut self, paths: &Vec<Arc<OsString>>) -> Result<(), &'static str> {
-        paths.into_par_iter().try_for_each(|p| {
+    fn aggregate(&mut self, paths: &Vec<Arc<OsString>>) {
+        paths.into_par_iter().for_each(|p| {
             if let Ok(file_metadata) = fs::metadata(p.as_os_str()) {
                 let file_type = util::get_file_type(p);
 
                 // Skip files based on filter file type provided from user.
                 if let Some(types) = self.filter_file_types {
                     if !types.contains(&file_type) {
-                        return Ok(());    
+                        return;    
                     }
                 }
 
@@ -69,9 +69,7 @@ impl<'a> Aggregator<'a> {
                         }).or_insert_with(|| vec![p.clone()]);
                 }
             }
-
-            Ok(())
-        })
+        });
     }
 }
 
@@ -82,12 +80,7 @@ impl<'a> PipelineStage for Aggregator<'a> {
             .num_threads(self.num_threads)
             .build()
             .unwrap();
-        let res = pool.install(|| Self::aggregate(self, &files));
-
-        if res.is_err() {
-            eprintln!("Error in generating the aggregate files");
-            return;
-        }
+        pool.install(|| Self::aggregate(self, &files));
 
         // Send remaining aggregated files to next stage.
         let keys: Vec<Arc<FileMetadata>> = self
