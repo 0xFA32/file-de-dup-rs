@@ -8,6 +8,11 @@ use crate::report::Report;
 use rayon::prelude::*;
 use super::executor::{AggregateFiles, AggregatedFilesChecksum, PipelineStage};
 
+// Aggregate these many files before sending to the next stage.
+// Set it to usize::MAX to aggregate all of the files before sending
+// to the next stage.
+const AGGREGATE_LIMIT: usize = 1;
+
 pub struct Checksum<'a> {
     num_threads: usize,
     do_full_comparison: bool,
@@ -40,10 +45,24 @@ impl<'a> Checksum<'a> {
             aggregate_file.file_names.par_iter().for_each(|file| {
                 let checksum = Self::calculate_checksum_file(file);
                 if let Some(checksum) = checksum {
-                    self.aggregated_files_checksum
-                        .entry(checksum)
-                        .or_insert_with(Vec::new)
-                        .push(file.clone());
+                    if AGGREGATE_LIMIT == usize::MAX || !self.do_full_comparison {
+                        self.aggregated_files_checksum
+                            .entry(checksum)
+                            .or_insert_with(Vec::new)
+                            .push(file.clone());
+                    } else {
+                        self.aggregated_files_checksum.entry(checksum)
+                            .and_modify(|v| {
+                                if v.len() > AGGREGATE_LIMIT {
+                                    let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum { 
+                                        checksum: checksum,
+                                        file_names: std::mem::replace(v, vec![file.clone()])
+                                    }));
+                                } else {
+                                    v.push(file.clone());
+                                }
+                            }).or_insert_with(|| vec![file.clone()]);
+                    }
                 }
             });
         });
@@ -83,6 +102,7 @@ impl<'a> PipelineStage for Checksum<'a> {
 
         pool.install(|| Self::calculate_checksum(self, &aggregated_files));
 
+        // Send remaining aggregated data to channel.
         let keys: Vec<u64> = self
             .aggregated_files_checksum
             .iter()
@@ -90,13 +110,13 @@ impl<'a> PipelineStage for Checksum<'a> {
             .collect();
 
         for key in keys {
-            if let Some((k, v)) = self.aggregated_files_checksum.remove(&key) {
+            if let Some((checksum, aggregated_files)) = self.aggregated_files_checksum.remove(&key) {
                 if !self.do_full_comparison {
-                    self.report.add(&v);
+                    self.report.add(&aggregated_files);
                 } else {
-                    self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum {
-                        file_names: v,
-                        checksum: k 
+                    let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum {
+                        file_names: aggregated_files,
+                        checksum: checksum 
                     }));
                 }
             }
