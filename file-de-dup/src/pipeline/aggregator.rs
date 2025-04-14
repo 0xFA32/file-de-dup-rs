@@ -104,3 +104,126 @@ impl<'a> PipelineStage for Aggregator<'a> {
         true
     }
 }
+
+mod tests {
+
+    use std::path::{Path, PathBuf};
+    use crossbeam_channel::unbounded;
+    use crate::pipeline::executor::{AggregateFiles, PipelineStage};
+    use super::{Aggregator, util};
+    use std::ffi::OsString;
+    use std::sync::Arc;
+    use std::collections::HashSet;
+
+    #[test]
+    fn aggregate_same_file_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+
+        
+        let (tx, rx) = unbounded::<Arc<OsString>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregateFiles>>();
+        let _ = tx.send(Arc::new(file1.as_os_str().to_os_string()));
+        let _ = tx.send(Arc::new(file2.as_os_str().to_os_string()));
+
+        let mut aggregator = Aggregator::new(&None, 1, rx, ntx);
+        aggregator.execute();
+
+        let res: Vec<Arc<AggregateFiles>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_different_file_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test.c");
+
+        
+        let (tx, rx) = unbounded::<Arc<OsString>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregateFiles>>();
+        let _ = tx.send(Arc::new(file1.as_os_str().to_os_string()));
+        let _ = tx.send(Arc::new(file2.as_os_str().to_os_string()));
+
+        let mut aggregator = Aggregator::new(&None, 1, rx, ntx);
+        aggregator.execute();
+
+        let res: Vec<Arc<AggregateFiles>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 1);
+        assert_eq!(res.get(1).unwrap().file_names.len(), 1);
+    }
+
+    #[test]
+    fn aggregate_different_file_diff_dir_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test19.c");
+
+        
+        let (tx, rx) = unbounded::<Arc<OsString>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregateFiles>>();
+        let _ = tx.send(Arc::new(file1.as_os_str().to_os_string()));
+        let _ = tx.send(Arc::new(file2.as_os_str().to_os_string()));
+
+        let mut aggregator = Aggregator::new(&None, 1, rx, ntx);
+        aggregator.execute();
+
+        let res: Vec<Arc<AggregateFiles>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 1);
+        assert_eq!(res.get(1).unwrap().file_names.len(), 1);
+    }
+
+    #[test]
+    fn aggregate_file_filter_match_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+
+        
+        let (tx, rx) = unbounded::<Arc<OsString>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregateFiles>>();
+        let _ = tx.send(Arc::new(file1.as_os_str().to_os_string()));
+        let _ = tx.send(Arc::new(file2.as_os_str().to_os_string()));
+
+        let mut filter_types = HashSet::new();
+        filter_types.insert(util::get_file_type_from_extension("c"));
+        let mut filter_types = Some(filter_types);
+        let mut aggregator = Aggregator::new(&filter_types, 1, rx, ntx);
+        aggregator.execute();
+
+        let res: Vec<Arc<AggregateFiles>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_file_filter_no_match_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+
+        
+        let (tx, rx) = unbounded::<Arc<OsString>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregateFiles>>();
+        let _ = tx.send(Arc::new(file1.as_os_str().to_os_string()));
+        let _ = tx.send(Arc::new(file2.as_os_str().to_os_string()));
+
+        let mut filter_types = HashSet::new();
+        filter_types.insert(util::get_file_type_from_extension("cpp"));
+        let mut filter_types = Some(filter_types);
+        let mut aggregator = Aggregator::new(&filter_types, 1, rx, ntx);
+        aggregator.execute();
+
+        let res: Vec<Arc<AggregateFiles>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 0);
+    }    
+}

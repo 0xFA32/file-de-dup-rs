@@ -100,13 +100,13 @@ impl Executor {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct FileMetadata {
     pub size: u64,
     pub file_type: u8,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub struct AggregateFiles {
     pub file_metdata: Arc<FileMetadata>,
     pub file_names: Vec<Arc<OsString>>,
