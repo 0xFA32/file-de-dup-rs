@@ -174,7 +174,6 @@ impl PipelineStage for FileCompare {
                         Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                             let num = total_work_clone.lock().unwrap();
                             if *num == 0 {
-                                println!("All work done! Closing the thread.");
                                 drop(num);
                                 break;
                             }
