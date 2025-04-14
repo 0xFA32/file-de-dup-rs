@@ -14,7 +14,6 @@ pub struct FileCompare {
     num_threads: usize,
     prev_stage_channel: Receiver<Arc<AggregatedFilesChecksum>>,
     report: Arc<Mutex<Report>>,
-    work_done: Arc<Mutex<u64>>,
 }
 
 impl FileCompare {
@@ -27,7 +26,6 @@ impl FileCompare {
             num_threads,
             prev_stage_channel,
             report,
-            work_done: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -44,6 +42,7 @@ impl FileCompare {
         &mut self,
         file_compare_receiver_chan: Receiver<AggregatedFilesOffset>,
         file_compare_sender_chan: Sender<AggregatedFilesOffset>,
+        work_done: Arc<Mutex<u64>>,
     ) {
         let mut threads = Vec::new();
 
@@ -52,7 +51,7 @@ impl FileCompare {
             let r_chan = file_compare_receiver_chan.clone();
             let s_chan = file_compare_sender_chan.clone();
             let report_clone = self.report.clone();
-            let total_work_clone = self.work_done.clone();
+            let total_work_clone = work_done.clone();
             let t= thread::spawn(move || {
                 loop {
                     match r_chan.recv_timeout(Duration::from_millis(TIMEOUT_MILLIS)) {
@@ -180,7 +179,8 @@ impl PipelineStage for FileCompare {
         for chunked_aggregated_files in files.chunks(10_000).into_iter() {
             let total_work = Self::get_total_work(chunked_aggregated_files);
 
-            let mut num = self.work_done.lock().unwrap();
+            let work_done = Arc::new(Mutex::new(0u64));
+            let mut num = work_done.lock().unwrap();
             *num = total_work;
     
             drop(num);
@@ -206,7 +206,7 @@ impl PipelineStage for FileCompare {
                 });
             }
 
-            Self::do_work(self, file_compare_receiver_chan, file_compare_sender_chan);
+            Self::do_work(self, file_compare_receiver_chan, file_compare_sender_chan, work_done);
         }
     }
     
