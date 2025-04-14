@@ -195,6 +195,7 @@ dependencies = [
  "dashmap",
  "memmap2",
  "num_cpus",
+ "once_cell",
  "rayon",
 ]
 

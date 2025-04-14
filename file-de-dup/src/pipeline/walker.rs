@@ -3,16 +3,16 @@ use crossbeam_channel::Sender;
 use std::{ffi::OsString, fs, path::PathBuf, sync::Arc};
 use rayon::prelude::*;
 
-pub struct Walker {
-    full_path: &'static str,
+pub struct Walker<'a> {
+    full_path: &'a str,
     recursive: bool,
     num_threads: usize,
     next_stage_channel: Sender<Arc<OsString>>
 }
 
-impl Walker {
+impl<'a> Walker<'a> {
     pub fn new(
-        full_path: &'static str,
+        full_path: &'a str,
         recursive: bool,
         num_threads: usize,
         next_stage_channel: Sender<Arc<OsString>>,
@@ -75,7 +75,7 @@ impl Walker {
     }
 }
 
-impl PipelineStage for Walker {
+impl<'a> PipelineStage for Walker<'a> {
     fn execute(&mut self) {
         // For simplicity just handle non-recursive case explicitly.
         if !self.recursive {
@@ -102,13 +102,46 @@ impl PipelineStage for Walker {
 }
 
 mod tests {
+    use std::path::{Path, PathBuf};
+    use crossbeam_channel::unbounded;
+    use crate::pipeline::executor::PipelineStage;
+    use super::Walker;
+    use std::ffi::OsString;
+    use std::sync::Arc;
+
     #[test]
     fn non_recursive_test() {
+        let full_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        let full_path_str = full_path.as_os_str().to_str().unwrap();
+        let (tx, rx) = unbounded();
+        let mut walker = Walker::new(
+            full_path_str,
+            false,
+            1,
+            tx,
+        );
 
+        walker.execute();
+
+        let res: Vec<Arc<OsString>> = rx.try_iter().collect();
+        assert_eq!(res.len(), 3);
     }
 
     #[test]
     fn recursive_test() {
-        
+        let full_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        let full_path_str = full_path.as_os_str().to_str().unwrap();
+        let (tx, rx) = unbounded();
+        let mut walker = Walker::new(
+            full_path_str,
+            true,
+            1,
+            tx,
+        );
+
+        walker.execute();
+
+        let res: Vec<Arc<OsString>> = rx.try_iter().collect();
+        assert_eq!(res.len(), 17);
     }
 }
