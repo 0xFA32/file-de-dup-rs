@@ -170,6 +170,26 @@ impl FileCompare {
             thread.join().unwrap();
         }        
     }
+
+    fn send_work(&mut self, chan: Sender<AggregatedFilesOffset>, files: &[Arc<AggregatedFilesChecksum>]) {
+        for aggregated_file in files {
+            let mut file_ptrs: Vec<Arc<FilePtr>> = Vec::new();
+            for i in 0..aggregated_file.file_names.len() {
+                let file = aggregated_file.file_names.get(i).unwrap();
+                let f = File::open(file.as_os_str()).unwrap();
+                file_ptrs.push(Arc::new(FilePtr {
+                    file_ptr: unsafe { MmapOptions::new().map(&f).unwrap() },
+                    file_name: file.clone(),
+                }));
+            }
+            
+            let _ = chan.send(AggregatedFilesOffset {
+                files: file_ptrs,
+                offset: 0,
+                file_size: aggregated_file.file_size
+            });
+        }        
+    }
 }
 
 impl PipelineStage for FileCompare {
@@ -188,23 +208,7 @@ impl PipelineStage for FileCompare {
             let (file_compare_sender_chan, file_compare_receiver_chan) =
                 unbounded::<AggregatedFilesOffset>();
 
-            for aggregated_file in chunked_aggregated_files {
-                let mut file_ptrs: Vec<Arc<FilePtr>> = Vec::new();
-                for i in 0..aggregated_file.file_names.len() {
-                    let file = aggregated_file.file_names.get(i).unwrap();
-                    let f = File::open(file.as_os_str()).unwrap();
-                    file_ptrs.push(Arc::new(FilePtr {
-                        file_ptr: unsafe { MmapOptions::new().map(&f).unwrap() },
-                        file_name: file.clone(),
-                    }));
-                }
-                
-                let _ = file_compare_sender_chan.send(AggregatedFilesOffset {
-                    files: file_ptrs,
-                    offset: 0,
-                    file_size: aggregated_file.file_size
-                });
-            }
+            Self::send_work(self, file_compare_sender_chan.clone(), chunked_aggregated_files);
 
             Self::do_work(self, file_compare_receiver_chan, file_compare_sender_chan, work_done);
         }
