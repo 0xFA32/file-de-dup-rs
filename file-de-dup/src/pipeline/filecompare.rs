@@ -38,6 +38,23 @@ impl FileCompare {
         return total_work;
     }
 
+    fn add_to_report(
+        report: Arc<Mutex<Report>>,
+        total_work: Arc<Mutex<u64>>,
+        aggregated_files: &AggregatedFilesOffset,
+    ) -> u64 {
+        let mut data = report.lock().unwrap();
+        data.add(&aggregated_files.files.iter().map(|f| f.file_name.clone()).collect());
+        drop(data);
+
+        let mut num = total_work.lock().unwrap();
+        *num -= aggregated_files.files.len() as u64;
+        let ret = *num;
+        drop(num);
+
+        return ret;
+    }
+
     fn do_work(
         &mut self,
         file_compare_receiver_chan: Receiver<AggregatedFilesOffset>,
@@ -50,38 +67,32 @@ impl FileCompare {
         for _ in 0..self.num_threads {
             let r_chan = file_compare_receiver_chan.clone();
             let s_chan = file_compare_sender_chan.clone();
-            let report_clone = self.report.clone();
-            let total_work_clone = work_done.clone();
+            let report = self.report.clone();
+            let total_work = work_done.clone();
             let t= thread::spawn(move || {
                 loop {
                     match r_chan.recv_timeout(Duration::from_millis(TIMEOUT_MILLIS)) {
                         Ok(aggregate_file) => {
-                            let mut offset = aggregate_file.offset;
+                            let mut offset = aggregate_file.offset as usize;
                             if offset == aggregate_file.file_size - 1 || aggregate_file.files.len() <= 1 {
-                                let mut data = report_clone.lock().unwrap();
-                                data.add(&aggregate_file.files.iter().map(|f| f.file_name.clone()).collect());
-                                drop(data);
-
-                                let mut num = total_work_clone.lock().unwrap();
-                                *num -= aggregate_file.files.len() as u64;
-                                if *num == 0 {
-                                    drop(num);
-                                    break;
+                                let remaining_work = Self::add_to_report(
+                                    report.clone(),
+                                    total_work.clone(),
+                                    &aggregate_file);
+                                
+                                match remaining_work {
+                                    0 => break,
+                                    _ => continue,
                                 }
-
-                                drop(num);
-                                continue;
                             }
 
                             while offset < aggregate_file.file_size - 1 {
-                                let end = min(offset + CHUNK_SIZE as u64, aggregate_file.file_size - 1);
-                                let start_usize = offset as usize;
-                                let end_usize = end as usize;
+                                let end = min(offset + CHUNK_SIZE, aggregate_file.file_size - 1);
                                 let reference = &aggregate_file
                                     .files
                                     .get(0)
                                     .unwrap()
-                                    .file_ptr[start_usize..end_usize];
+                                    .file_ptr[offset..end];
 
                                 let mut observed_difference = false;
         
@@ -90,7 +101,7 @@ impl FileCompare {
                                         .files
                                         .get(index)
                                         .unwrap()
-                                        .file_ptr[start_usize..end_usize];
+                                        .file_ptr[offset..end];
 
                                     if reference != ptr {
                                         observed_difference = true;
@@ -103,7 +114,7 @@ impl FileCompare {
                                     let mut byte_comparison: HashMap<&[u8], Vec<Arc<FilePtr>>> = HashMap::new();
                                     for index in 0..aggregate_file.files.len() {
                                         let file_ptr = aggregate_file.files.get(index).unwrap();
-                                        let ptr = &file_ptr.file_ptr[start_usize..end_usize];
+                                        let ptr = &file_ptr.file_ptr[offset..end];
                                         byte_comparison.entry(ptr)
                                             .or_insert_with(Vec::new)
                                             .push(file_ptr.clone());
@@ -126,23 +137,19 @@ impl FileCompare {
 
                             if offset == aggregate_file.file_size - 1 {
                                 // If all the files are same then we can add it to the report.
-                                let mut data = report_clone.lock().unwrap();
-                                data.add(&aggregate_file.files.iter().map(|f| f.file_name.clone()).collect());
-                                drop(data);
-
-                                let mut num = total_work_clone.lock().unwrap();
-                                *num -= aggregate_file.files.len() as u64;
-
-                                if *num == 0 {
-                                    drop(num);
-                                    break;
+                                let remaining_work = Self::add_to_report(
+                                    report.clone(),
+                                    total_work.clone(),
+                                    &aggregate_file);
+                                
+                                match remaining_work {
+                                    0 => break,
+                                    _ => continue,
                                 }
-
-                                drop(num);
                             }
                         }
                         Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                            let num = total_work_clone.lock().unwrap();
+                            let num = total_work.lock().unwrap();
                             if *num == 0 {
                                 drop(num);
                                 break;
@@ -186,7 +193,7 @@ impl FileCompare {
             let _ = chan.send(AggregatedFilesOffset {
                 files: file_ptrs,
                 offset: 0,
-                file_size: aggregated_file.file_size
+                file_size: aggregated_file.file_size as usize
             });
         }        
     }
@@ -221,8 +228,8 @@ impl PipelineStage for FileCompare {
 
 struct AggregatedFilesOffset {
     files: Vec<Arc<FilePtr>>,
-    offset: u64,
-    file_size: u64,
+    offset: usize,
+    file_size: usize,
 }
 
 struct FilePtr {
