@@ -19,7 +19,7 @@ pub struct Checksum {
     prev_stage_channel: Receiver<Arc<AggregateFiles>>,
     next_stage_channel: Sender<Arc<AggregatedFilesChecksum>>,
     report: Arc<Mutex<Report>>,
-    aggregated_files_checksum: DashMap<(u64, u64), Vec<Arc<OsString>>>,
+    aggregated_files_checksum: DashMap<(u64, usize), Vec<Arc<OsString>>>,
 }
 
 impl Checksum {
@@ -104,7 +104,7 @@ impl PipelineStage for Checksum {
         pool.install(|| Self::calculate_checksum(self, &aggregated_files));
 
         // Send remaining aggregated data to channel.
-        let keys: Vec<(u64, u64)> = self
+        let keys: Vec<(u64, usize)> = self
             .aggregated_files_checksum
             .iter()
             .map(|entry| entry.key().clone())

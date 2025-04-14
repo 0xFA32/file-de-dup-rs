@@ -102,7 +102,7 @@ impl Executor {
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct FileMetadata {
-    pub size: u64,
+    pub size: usize,
     pub file_type: u8,
 }
 
@@ -115,5 +115,5 @@ pub struct AggregateFiles {
 pub struct AggregatedFilesChecksum {
     pub file_names: Vec<Arc<OsString>>,
     pub checksum: u64,
-    pub file_size: u64,
+    pub file_size: usize,
 }

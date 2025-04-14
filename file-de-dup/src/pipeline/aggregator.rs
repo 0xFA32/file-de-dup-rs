@@ -47,7 +47,7 @@ impl<'a> Aggregator<'a> {
                 }
 
                 let metadata = Arc::new(FileMetadata { 
-                    size: file_metadata.len(),
+                    size: file_metadata.len() as usize,
                     file_type: file_type,
                 });
     
