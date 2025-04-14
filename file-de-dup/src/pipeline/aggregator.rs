@@ -105,6 +105,7 @@ impl<'a> PipelineStage for Aggregator<'a> {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     use std::path::{Path, PathBuf};
@@ -195,7 +196,7 @@ mod tests {
 
         let mut filter_types = HashSet::new();
         filter_types.insert(util::get_file_type_from_extension("c"));
-        let mut filter_types = Some(filter_types);
+        let filter_types = Some(filter_types);
         let mut aggregator = Aggregator::new(&filter_types, 1, rx, ntx);
         aggregator.execute();
 
@@ -219,7 +220,7 @@ mod tests {
 
         let mut filter_types = HashSet::new();
         filter_types.insert(util::get_file_type_from_extension("cpp"));
-        let mut filter_types = Some(filter_types);
+        let filter_types = Some(filter_types);
         let mut aggregator = Aggregator::new(&filter_types, 1, rx, ntx);
         aggregator.execute();
 
