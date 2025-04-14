@@ -1,6 +1,6 @@
 use std::{cmp::min, collections::HashMap, ffi::OsString, fs::File, sync::{Arc, Mutex}, thread, time::Duration};
 
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use memmap2::{Mmap, MmapOptions};
 
 use crate::report::Report;
@@ -31,7 +31,7 @@ impl FileCompare {
         }
     }
 
-    fn get_total_work(files: &Vec<Arc<AggregatedFilesChecksum>>) -> u64 {
+    fn get_total_work(files: &[Arc<AggregatedFilesChecksum>]) -> u64 {
         let mut total_work: u64 = 0;
         for file in files {
             total_work += file.file_names.len() as u64;
@@ -39,41 +39,12 @@ impl FileCompare {
 
         return total_work;
     }
-}
 
-impl PipelineStage for FileCompare {
-    fn execute(&mut self) {
-        let files: Vec<Arc<AggregatedFilesChecksum>> = self.prev_stage_channel.try_iter().collect();
-        let total_work = Self::get_total_work(&files);
-
-        let mut num = self.work_done.lock().unwrap();
-        *num = total_work;
-
-        drop(num);
-
-        let (file_compare_sender_chan, file_compare_receiver_chan) =
-            unbounded::<AggregatedFilesOffset>();
-
-
-        // TODO: Chunk files to batch of 10K to avoid hitting the limit of mmap.
-        for aggregated_file in files {
-            let mut file_ptrs: Vec<Arc<FilePtr>> = Vec::new();
-            for i in 0..aggregated_file.file_names.len() {
-                let file = aggregated_file.file_names.get(i).unwrap();
-                let f = File::open(file.as_os_str()).unwrap();
-                file_ptrs.push(Arc::new(FilePtr {
-                    file_ptr: unsafe { MmapOptions::new().map(&f).unwrap() },
-                    file_name: file.clone(),
-                }));
-            }
-            
-            let _ = file_compare_sender_chan.send(AggregatedFilesOffset {
-                files: file_ptrs,
-                offset: 0,
-                file_size: aggregated_file.file_size
-            });
-        }
-
+    fn do_work(
+        &mut self,
+        file_compare_receiver_chan: Receiver<AggregatedFilesOffset>,
+        file_compare_sender_chan: Sender<AggregatedFilesOffset>,
+    ) {
         let mut threads = Vec::new();
 
         // Sent all work to channel. Going to start working on it.
@@ -198,6 +169,44 @@ impl PipelineStage for FileCompare {
 
         for thread in threads {
             thread.join().unwrap();
+        }        
+    }
+}
+
+impl PipelineStage for FileCompare {
+    fn execute(&mut self) {
+        let files: Vec<Arc<AggregatedFilesChecksum>> = self.prev_stage_channel.try_iter().collect();
+
+        for chunked_aggregated_files in files.chunks(10_000).into_iter() {
+            let total_work = Self::get_total_work(chunked_aggregated_files);
+
+            let mut num = self.work_done.lock().unwrap();
+            *num = total_work;
+    
+            drop(num);
+    
+            let (file_compare_sender_chan, file_compare_receiver_chan) =
+                unbounded::<AggregatedFilesOffset>();
+
+            for aggregated_file in chunked_aggregated_files {
+                let mut file_ptrs: Vec<Arc<FilePtr>> = Vec::new();
+                for i in 0..aggregated_file.file_names.len() {
+                    let file = aggregated_file.file_names.get(i).unwrap();
+                    let f = File::open(file.as_os_str()).unwrap();
+                    file_ptrs.push(Arc::new(FilePtr {
+                        file_ptr: unsafe { MmapOptions::new().map(&f).unwrap() },
+                        file_name: file.clone(),
+                    }));
+                }
+                
+                let _ = file_compare_sender_chan.send(AggregatedFilesOffset {
+                    files: file_ptrs,
+                    offset: 0,
+                    file_size: aggregated_file.file_size
+                });
+            }
+
+            Self::do_work(self, file_compare_receiver_chan, file_compare_sender_chan);
         }
     }
     

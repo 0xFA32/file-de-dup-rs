@@ -19,7 +19,7 @@ pub struct Checksum {
     prev_stage_channel: Receiver<Arc<AggregateFiles>>,
     next_stage_channel: Sender<Arc<AggregatedFilesChecksum>>,
     report: Arc<Mutex<Report>>,
-    aggregated_files_checksum: DashMap<FileMetadata, Vec<Arc<OsString>>>,
+    aggregated_files_checksum: DashMap<(u64, u64), Vec<Arc<OsString>>>,
 }
 
 impl Checksum {
@@ -45,17 +45,13 @@ impl Checksum {
             aggregate_file.file_names.par_iter().for_each(|file| {
                 let checksum = Self::calculate_checksum_file(file);
                 if let Some(checksum) = checksum {
-                    let metadata = FileMetadata {
-                        checksum: checksum,
-                        file_size: aggregate_file.file_metdata.size,
-                    };
                     if AGGREGATE_LIMIT == usize::MAX || !self.do_full_comparison {
                         self.aggregated_files_checksum
-                            .entry(metadata)
+                            .entry((checksum, aggregate_file.file_metdata.size))
                             .or_insert_with(Vec::new)
                             .push(file.clone());
                     } else {
-                        self.aggregated_files_checksum.entry(metadata)
+                        self.aggregated_files_checksum.entry((checksum, aggregate_file.file_metdata.size))
                             .and_modify(|v| {
                                 if v.len() > AGGREGATE_LIMIT {
                                     let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum { 
@@ -108,21 +104,21 @@ impl PipelineStage for Checksum {
         pool.install(|| Self::calculate_checksum(self, &aggregated_files));
 
         // Send remaining aggregated data to channel.
-        let keys: Vec<FileMetadata> = self
+        let keys: Vec<(u64, u64)> = self
             .aggregated_files_checksum
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
 
         for key in keys {
-            if let Some((file_metadata, aggregated_files)) = self.aggregated_files_checksum.remove(&key) {
+            if let Some((_, aggregated_files)) = self.aggregated_files_checksum.remove(&key) {
                 if !self.do_full_comparison {
                     self.report.lock().unwrap().add(&aggregated_files);
                 } else {
                     let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum {
                         file_names: aggregated_files,
-                        checksum: file_metadata.checksum,
-                        file_size: file_metadata.file_size, 
+                        checksum: key.0,
+                        file_size: key.1, 
                     }));
                 }
             }
@@ -132,10 +128,4 @@ impl PipelineStage for Checksum {
     fn is_completed(&self) -> bool {
         true
     } 
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-struct FileMetadata {
-    checksum: u64,
-    file_size: u64,
 }
