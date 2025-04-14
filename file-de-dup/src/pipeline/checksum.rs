@@ -1,4 +1,4 @@
-use std::{ffi::OsString, fs::File, io::{BufReader, Read}, sync::Arc};
+use std::{ffi::OsString, fs::File, io::{BufReader, Read}, sync::{Arc, Mutex}};
 
 use crossbeam_channel::{Receiver, Sender};
 use dashmap::DashMap;
@@ -11,24 +11,24 @@ use super::executor::{AggregateFiles, AggregatedFilesChecksum, PipelineStage};
 // Aggregate these many files before sending to the next stage.
 // Set it to usize::MAX to aggregate all of the files before sending
 // to the next stage.
-const AGGREGATE_LIMIT: usize = 1;
+const AGGREGATE_LIMIT: usize = usize::MAX;
 
-pub struct Checksum<'a> {
+pub struct Checksum {
     num_threads: usize,
     do_full_comparison: bool,
     prev_stage_channel: Receiver<Arc<AggregateFiles>>,
     next_stage_channel: Sender<Arc<AggregatedFilesChecksum>>,
-    report: &'a mut Report,
-    aggregated_files_checksum: DashMap<u64, Vec<Arc<OsString>>>,
+    report: Arc<Mutex<Report>>,
+    aggregated_files_checksum: DashMap<FileMetadata, Vec<Arc<OsString>>>,
 }
 
-impl<'a> Checksum<'a> {
+impl Checksum {
     pub fn new(
         num_threads: usize,
         do_full_comparison: bool,
         prev_stage_channel: Receiver<Arc<AggregateFiles>>,
         next_stage_channel: Sender<Arc<AggregatedFilesChecksum>>,
-        report: &'a mut Report,
+        report: Arc<Mutex<Report>>,
     ) -> Checksum {
         Self {  
             num_threads,
@@ -45,13 +45,17 @@ impl<'a> Checksum<'a> {
             aggregate_file.file_names.par_iter().for_each(|file| {
                 let checksum = Self::calculate_checksum_file(file);
                 if let Some(checksum) = checksum {
+                    let metadata = FileMetadata {
+                        checksum: checksum,
+                        file_size: aggregate_file.file_metdata.size,
+                    };
                     if AGGREGATE_LIMIT == usize::MAX || !self.do_full_comparison {
                         self.aggregated_files_checksum
-                            .entry(checksum)
+                            .entry(metadata)
                             .or_insert_with(Vec::new)
                             .push(file.clone());
                     } else {
-                        self.aggregated_files_checksum.entry(checksum)
+                        self.aggregated_files_checksum.entry(metadata)
                             .and_modify(|v| {
                                 if v.len() > AGGREGATE_LIMIT {
                                     let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum { 
@@ -93,7 +97,7 @@ impl<'a> Checksum<'a> {
     }
 }
 
-impl<'a> PipelineStage for Checksum<'a> {
+impl PipelineStage for Checksum {
     fn execute(&mut self) {
         let aggregated_files: Vec<Arc<AggregateFiles>> = self.prev_stage_channel.try_iter().collect();
         let pool = rayon::ThreadPoolBuilder::new()
@@ -104,20 +108,21 @@ impl<'a> PipelineStage for Checksum<'a> {
         pool.install(|| Self::calculate_checksum(self, &aggregated_files));
 
         // Send remaining aggregated data to channel.
-        let keys: Vec<u64> = self
+        let keys: Vec<FileMetadata> = self
             .aggregated_files_checksum
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
 
         for key in keys {
-            if let Some((checksum, aggregated_files)) = self.aggregated_files_checksum.remove(&key) {
+            if let Some((file_metadata, aggregated_files)) = self.aggregated_files_checksum.remove(&key) {
                 if !self.do_full_comparison {
-                    self.report.add(&aggregated_files);
+                    self.report.lock().unwrap().add(&aggregated_files);
                 } else {
                     let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum {
                         file_names: aggregated_files,
-                        checksum: checksum 
+                        checksum: file_metadata.checksum,
+                        file_size: file_metadata.file_size, 
                     }));
                 }
             }
@@ -127,4 +132,10 @@ impl<'a> PipelineStage for Checksum<'a> {
     fn is_completed(&self) -> bool {
         true
     } 
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct FileMetadata {
+    checksum: u64,
+    file_size: u64,
 }

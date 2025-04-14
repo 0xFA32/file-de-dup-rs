@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsString, sync::Arc};
+use std::{collections::HashSet, ffi::OsString, sync::{Arc, Mutex}};
 
 /// Pipelined execution of various stages to find duplicates of files.
 /// 
@@ -22,7 +22,7 @@ use std::{collections::HashSet, ffi::OsString, sync::Arc};
 /// into executing them parallely.
 
 use crate::{pipeline::aggregator::Aggregator, report::Report};
-use super::{checksum::Checksum, util, walker::Walker};
+use super::{checksum::Checksum, filecompare::FileCompare, util, walker::Walker};
 use crossbeam_channel::unbounded;
 
 pub struct Executor {
@@ -66,10 +66,11 @@ impl Executor {
     }
 
     pub fn execute(&self) {
-        let mut report = Report::new();
-        let (mut walker_sender_chan, mut walker_receiver_chan) = unbounded::<Arc<OsString>>();
-        let (mut agg_sender_chan, mut agg_receiver_chan) = unbounded::<Arc<AggregateFiles>>();
-        let (mut check_sender_chan, mut check_receiver_chan) = unbounded::<Arc<AggregatedFilesChecksum>>();
+        let report = Arc::new(Mutex::new(Report::new()));
+        
+        let (walker_sender_chan, walker_receiver_chan) = unbounded::<Arc<OsString>>();
+        let (agg_sender_chan, agg_receiver_chan) = unbounded::<Arc<AggregateFiles>>();
+        let (check_sender_chan, check_receiver_chan) = unbounded::<Arc<AggregatedFilesChecksum>>();
         let mut walker = Walker::new(self.full_path, self.recursive, self.num_threads, walker_sender_chan);
         walker.execute();
         let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads, walker_receiver_chan, agg_sender_chan);
@@ -79,26 +80,23 @@ impl Executor {
             self.do_full_comparison,
             agg_receiver_chan,
             check_sender_chan,
-            &mut report);
+            report.clone());
 
         checksum.execute();
-        report.display();
-        /*
-        let mut agg = Aggregator::new(&self.filter_file_types, self.num_threads);
-        let mut checksum = Checksum::new(self.num_threads, self.do_full_comparison);
-        let mut file_compare = FileCompare::new(self.num_threads);
 
-        walker.execute();
-        println!("Current progress = {}", walker.progress());
-        
-        agg.execute();
-        println!("Current progress = {}", agg.progress());
+        if self.do_full_comparison {
+            println!("Executed checksum stage and going to execute file compare stage...");
+            let mut file_compare = FileCompare::new(
+                self.num_threads,
+                check_receiver_chan,
+                report.clone(),
+            );
+            file_compare.execute();
+        } else {
+            println!("Not doing full comparison...");
+        }
 
-        checksum.execute();
-        println!("Current progress = {}", checksum.progress());
-
-        file_compare.execute();
-        println!("Current progress = {}", file_compare.progress());*/
+        report.lock().unwrap().display();
     }
 }
 
