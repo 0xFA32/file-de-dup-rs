@@ -101,6 +101,7 @@ impl<'a> PipelineStage for Walker<'a> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
     use crossbeam_channel::unbounded;
