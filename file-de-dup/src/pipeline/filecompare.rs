@@ -236,3 +236,155 @@ struct FilePtr {
     file_ptr: Mmap,
     file_name: Arc<OsString>,
 }
+
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use crossbeam_channel::unbounded;
+    use crate::pipeline::executor::{AggregateFiles, AggregatedFilesChecksum, FileMetadata, PipelineStage};
+    use crate::report::Report;
+    use crate::pipeline::util;
+    use super::FileCompare;
+    use std::ffi::OsString;
+    use std::sync::{Arc, Mutex};
+    use std::collections::HashSet;
+
+    #[test]
+    fn file_compare_same_file_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+        let file_metadata = fs::metadata(&file1).unwrap();
+
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+        let aggregate_file = AggregatedFilesChecksum {
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())],
+            checksum: 100,
+            file_size: file_metadata.len() as usize,
+        };
+
+        let _ = tx.send(Arc::new(aggregate_file));
+
+        let mut file_compare = FileCompare::new(1, rx, report.clone());
+        file_compare.execute();
+
+        assert_eq!(report.lock().unwrap().get().len(), 1);
+        assert_eq!(report.lock().unwrap().get().get(0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn file_compare_different_file_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test1.c");
+        let file2 = root.join("test.c");
+        let file_metadata = fs::metadata(&file1).unwrap();
+
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+        let aggregate_file = AggregatedFilesChecksum {
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())],
+            checksum: 100,
+            file_size: file_metadata.len() as usize,
+        };
+
+        let _ = tx.send(Arc::new(aggregate_file));
+
+        let mut file_compare = FileCompare::new(1, rx, report.clone());
+        file_compare.execute();
+
+        assert_eq!(report.lock().unwrap().get().len(), 2);
+        assert_eq!(report.lock().unwrap().get().get(0).unwrap().len(), 1);
+        assert_eq!(report.lock().unwrap().get().get(1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn file_compare_different_file_different_size_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test1.c");
+        let file2 = root.join("test10.c");
+        let file_metadata = fs::metadata(&file1).unwrap();
+
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+        let aggregate_file = AggregatedFilesChecksum {
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string())],
+            checksum: 100,
+            file_size: file_metadata.len() as usize,
+        };
+
+        let aggregate_file1 = AggregatedFilesChecksum {
+            file_names: vec![Arc::new(file2.as_os_str().to_os_string())],
+            checksum: 100,
+            file_size: fs::metadata(&file2).unwrap().len() as usize,
+        };
+
+        let _ = tx.send(Arc::new(aggregate_file));
+        let _ = tx.send(Arc::new(aggregate_file1));
+
+        let mut file_compare = FileCompare::new(1, rx, report.clone());
+        file_compare.execute();
+
+        assert_eq!(report.lock().unwrap().get().len(), 2);
+        assert_eq!(report.lock().unwrap().get().get(0).unwrap().len(), 1);
+        assert_eq!(report.lock().unwrap().get().get(1).unwrap().len(), 1);
+    }
+    
+    #[test]
+    fn file_compare_different_file_same_checksum_2_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test1.c");
+        let file2 = root.join("test.c");
+        let file_metadata = fs::metadata(&file1).unwrap();
+
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+        let aggregate_file = AggregatedFilesChecksum {
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())],
+            checksum: 100,
+            file_size: file_metadata.len() as usize,
+        };
+
+        let _ = tx.send(Arc::new(aggregate_file));
+
+        let mut file_compare = FileCompare::new(1, rx, report.clone());
+        file_compare.execute();
+
+        assert_eq!(report.lock().unwrap().get().len(), 2);
+        assert_eq!(report.lock().unwrap().get().get(0).unwrap().len(), 1);
+        assert_eq!(report.lock().unwrap().get().get(1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn file_compare_different_file_same_checksum_3_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test1.c");
+        let file2 = root.join("test.c");
+        let file3 = root.join("test11.c");
+        let file_metadata = fs::metadata(&file1).unwrap();
+
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+        let aggregate_file = AggregatedFilesChecksum {
+            file_names: vec![
+                Arc::new(file1.as_os_str().to_os_string()),
+                Arc::new(file2.as_os_str().to_os_string()),
+                Arc::new(file3.as_os_str().to_os_string())
+            ],
+            checksum: 100,
+            file_size: file_metadata.len() as usize,
+        };
+
+        let _ = tx.send(Arc::new(aggregate_file));
+
+        let mut file_compare = FileCompare::new(1, rx, report.clone());
+        file_compare.execute();
+
+        assert_eq!(report.lock().unwrap().get().len(), 3);
+    }
+}

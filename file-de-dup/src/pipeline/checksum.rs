@@ -129,3 +129,175 @@ impl PipelineStage for Checksum {
         true
     } 
 }
+
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use crossbeam_channel::unbounded;
+    use crate::pipeline::executor::{AggregateFiles, AggregatedFilesChecksum, FileMetadata, PipelineStage};
+    use crate::report::Report;
+    use crate::pipeline::util;
+    use super::Checksum;
+    use std::ffi::OsString;
+    use std::sync::{Arc, Mutex};
+    use std::collections::HashSet;
+
+    #[test]
+    fn checksum_same_file_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+
+        let file_type = util::get_file_type(&(file1.as_os_str().to_os_string()));
+        let file_metadata = fs::metadata(&file1).unwrap();
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregateFiles>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+
+        let aggregated_files: AggregateFiles = AggregateFiles {
+            file_metdata: Arc::new(FileMetadata { size: file_metadata.len() as usize, file_type: file_type }),
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())]
+        };
+
+        let _ = tx.send(Arc::new(aggregated_files));
+
+        let mut checksum = Checksum::new(1, true, rx, ntx, report);
+        checksum.execute();
+
+        let res: Vec<Arc<AggregatedFilesChecksum>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 2);
+        assert_eq!(res.get(0).unwrap().checksum, 5946100406913306610);
+    }
+
+    #[test]
+    fn checksum_different_file_same_size_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test.c");
+
+        let file_type = util::get_file_type(&(file1.as_os_str().to_os_string()));
+        let file_metadata = fs::metadata(&file1).unwrap();
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregateFiles>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+
+        let aggregated_files: AggregateFiles = AggregateFiles {
+            file_metdata: Arc::new(FileMetadata { size: file_metadata.len() as usize, file_type: file_type }),
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())]
+        };
+
+        let _ = tx.send(Arc::new(aggregated_files));
+
+        let mut checksum = Checksum::new(1, true, rx, ntx, report);
+        checksum.execute();
+
+        let res: Vec<Arc<AggregatedFilesChecksum>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 1);
+        assert_eq!(res.get(1).unwrap().file_names.len(), 1);
+        
+        let checksums: Vec<u64> = res.iter().map(|f| f.checksum).collect();
+        assert!(checksums.contains(&5946100406913306610));
+        assert!(checksums.contains(&2608553799101011692));
+    }
+
+    #[test]
+    fn checksum_different_file_different_size_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test.c");
+
+        let file_type = util::get_file_type(&(file1.as_os_str().to_os_string()));
+        let file_metadata = fs::metadata(&file1).unwrap();
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregateFiles>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+
+        let aggregated_files: AggregateFiles = AggregateFiles {
+            file_metdata: Arc::new(FileMetadata { size: file_metadata.len() as usize, file_type: file_type }),
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string())]
+        };
+
+        let aggregated_files1: AggregateFiles = AggregateFiles {
+            file_metdata: Arc::new(FileMetadata { size: (file_metadata.len() as usize) + 100, file_type: file_type }),
+            file_names: vec![Arc::new(file2.as_os_str().to_os_string())]
+        };
+
+        let _ = tx.send(Arc::new(aggregated_files));
+        let _ = tx.send(Arc::new(aggregated_files1));
+
+        let mut checksum = Checksum::new(1, true, rx, ntx, report);
+        checksum.execute();
+
+        let res: Vec<Arc<AggregatedFilesChecksum>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res.get(0).unwrap().file_names.len(), 1);
+        assert_eq!(res.get(1).unwrap().file_names.len(), 1);
+        
+        let checksums: Vec<u64> = res.iter().map(|f| f.checksum).collect();
+        assert!(checksums.contains(&5946100406913306610));
+        assert!(checksums.contains(&2608553799101011692));
+    }    
+
+    #[test]
+    fn checksum_same_file_no_full_comparison_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+
+        let file_type = util::get_file_type(&(file1.as_os_str().to_os_string()));
+        let file_metadata = fs::metadata(&file1).unwrap();
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregateFiles>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+
+        let aggregated_files: AggregateFiles = AggregateFiles {
+            file_metdata: Arc::new(FileMetadata { size: file_metadata.len() as usize, file_type: file_type }),
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())]
+        };
+
+        let _ = tx.send(Arc::new(aggregated_files));
+
+        let mut checksum =
+            Checksum::new(1, false, rx, ntx, report.clone());
+        checksum.execute();
+
+        let res: Vec<Arc<AggregatedFilesChecksum>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 0);
+        assert_eq!(report.lock().unwrap().get().len(), 1);
+    }
+
+    #[test]
+    fn checksum_different_file_no_full_comparison_test() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/test_data");
+        
+        let file1 = root.join("test10.c");
+        let file2 = root.join("test_5/test200.c");
+
+        let file_type = util::get_file_type(&(file1.as_os_str().to_os_string()));
+        let file_metadata = fs::metadata(&file1).unwrap();
+        let report = Arc::new(Mutex::new(Report::new()));
+        let (tx, rx) = unbounded::<Arc<AggregateFiles>>();
+        let (ntx, nrx) = unbounded::<Arc<AggregatedFilesChecksum>>();
+
+        let aggregated_files: AggregateFiles = AggregateFiles {
+            file_metdata: Arc::new(FileMetadata { size: file_metadata.len() as usize, file_type: file_type }),
+            file_names: vec![Arc::new(file1.as_os_str().to_os_string()), Arc::new(file2.as_os_str().to_os_string())]
+        };
+
+        let _ = tx.send(Arc::new(aggregated_files));
+
+        let mut checksum =
+            Checksum::new(1, false, rx, ntx, report.clone());
+        checksum.execute();
+
+        let res: Vec<Arc<AggregatedFilesChecksum>> = nrx.try_iter().collect();
+        assert_eq!(res.len(), 0);
+        assert_eq!(report.lock().unwrap().get().len(), 1);
+    }        
+}

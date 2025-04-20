@@ -28,6 +28,11 @@ impl Report {
             file_num += 1;
         }
     }
+
+    #[cfg(test)]
+    pub fn get(&self) -> &Vec<Vec<Arc<OsString>>> {
+        &self.de_duped_files
+    }
 }
 
 impl Deref for Report {
