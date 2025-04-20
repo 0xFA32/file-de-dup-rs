@@ -11,6 +11,7 @@ use super::executor::{AggregateFiles, AggregatedFilesChecksum, PipelineStage};
 // Aggregate these many files before sending to the next stage.
 // Set it to usize::MAX to aggregate all of the files before sending
 // to the next stage.
+#[allow(clippy::absurd_extreme_comparisons)]
 const AGGREGATE_LIMIT: usize = usize::MAX;
 
 pub struct Checksum {
@@ -48,14 +49,14 @@ impl Checksum {
                     if AGGREGATE_LIMIT == usize::MAX || !self.do_full_comparison {
                         self.aggregated_files_checksum
                             .entry((checksum, aggregate_file.file_metdata.size))
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(file.clone());
                     } else {
                         self.aggregated_files_checksum.entry((checksum, aggregate_file.file_metdata.size))
                             .and_modify(|v| {
                                 if v.len() > AGGREGATE_LIMIT {
                                     let _ = self.next_stage_channel.send(Arc::new(AggregatedFilesChecksum { 
-                                        checksum: checksum,
+                                        checksum,
                                         file_names: std::mem::replace(v, vec![file.clone()]),
                                         file_size: aggregate_file.file_metdata.size,
                                     }));
@@ -107,7 +108,7 @@ impl PipelineStage for Checksum {
         let keys: Vec<(u64, usize)> = self
             .aggregated_files_checksum
             .iter()
-            .map(|entry| entry.key().clone())
+            .map(|entry| *entry.key())
             .collect();
 
         for key in keys {
@@ -130,6 +131,7 @@ impl PipelineStage for Checksum {
     } 
 }
 
+#[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};

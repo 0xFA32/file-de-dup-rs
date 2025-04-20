@@ -16,7 +16,7 @@ impl<'a> Walker<'a> {
         recursive: bool,
         num_threads: usize,
         next_stage_channel: Sender<Arc<OsString>>,
-    ) -> Walker {
+    ) -> Walker<'a> {
         Self {
             full_path,
             recursive,
@@ -60,15 +60,13 @@ impl<'a> Walker<'a> {
                     if res.is_err() {
                         eprintln!("Error sending file name to next stage!");
                     }
-                } else {
-                    if let Ok(paths) = fs::read_dir(p) {
-                        let bufs: Vec<PathBuf> = paths
-                            .filter_map(|entry| entry.ok())
-                            .map(|entry| entry.path())
-                            .collect();
-    
-                        self.walk_recursive(bufs);
-                    }
+                } else if let Ok(paths) = fs::read_dir(p) {
+                    let bufs: Vec<PathBuf> = paths
+                        .filter_map(|entry| entry.ok())
+                        .map(|entry| entry.path())
+                        .collect();
+
+                    self.walk_recursive(bufs);
                 }
             }
         });
@@ -79,7 +77,7 @@ impl<'a> PipelineStage for Walker<'a> {
     fn execute(&mut self) {
         // For simplicity just handle non-recursive case explicitly.
         if !self.recursive {
-            Self::walk_non_recursive(&self);
+            Self::walk_non_recursive(self);
             return;
         }
 
@@ -93,7 +91,7 @@ impl<'a> PipelineStage for Walker<'a> {
             .num_threads(self.num_threads)
             .build()
             .unwrap();
-        pool.install(|| Self::walk_recursive(&self, path_bufs));
+        pool.install(|| Self::walk_recursive(self, path_bufs));
     }
     
     fn is_completed(&self) -> bool {

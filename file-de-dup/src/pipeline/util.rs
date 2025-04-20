@@ -9,15 +9,15 @@ pub fn get_file_type(file_name: &OsString) -> u8 {
             return get_file_type_from_extension(ext);
     }
 
-    return 10;
+    10
 }
 
 pub fn get_file_type_from_extension(ext: &str) -> u8 {
     match ext {
-        "gif" => return 0,
-        "jpeg" => return 1,
-        "mpeg" => return 2,
-        "c" => return 3,
-        _ => return 10,
+        "gif" => 0,
+        "jpeg" => 1,
+        "mpeg" => 2,
+        "c" => 3,
+        _ => 10,
     }
 }

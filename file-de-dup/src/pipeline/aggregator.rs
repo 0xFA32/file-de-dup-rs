@@ -30,7 +30,7 @@ impl<'a> Aggregator<'a> {
             num_threads,
             prev_stage_channel,
             aggregated_files: DashMap::new(),
-            next_stage_channel: next_stage_channel,
+            next_stage_channel,
         }
     }
 
@@ -48,12 +48,12 @@ impl<'a> Aggregator<'a> {
 
                 let metadata = Arc::new(FileMetadata { 
                     size: file_metadata.len() as usize,
-                    file_type: file_type,
+                    file_type,
                 });
     
                 if AGGREGATE_LIMIT == usize::MAX {
                     self.aggregated_files.entry(metadata)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(p.clone());
                 } else {
                     self.aggregated_files.entry(metadata.clone())

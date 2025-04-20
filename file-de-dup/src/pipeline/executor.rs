@@ -1,29 +1,28 @@
-use std::{collections::HashSet, ffi::OsString, sync::{Arc, Mutex}};
-
-/// Pipelined execution of various stages to find duplicates of files.
-/// 
-///   ┌─────────────┐       ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
-///   │    Walk     │------>│  Aggregate  │------>│ Checksum    │------>│  Full comp  │
-///   │             │       │             │       │             │       │             │
-///   └─────────────┘       └─────────────┘       └─────────────┘       └─────────────┘
-///                                                     |                    |
-///                                                     └────────────────────└─────────> Report
-/// 
-/// Stage 1: Walk
-///     - Walk the directory recursively (if specified) and generated the set of files.
-/// Stage 2: Aggregate
-///     - Aggregate the files by various parameters like file size, type etc.
-/// Stage 3: Checksum
-///     - For same set of files then calculate the checksum.
-/// Stage 4: Byte by Byte comparison
-///     - If the checksums are the same for some set of files then do a byte-by-byte comparison.
-/// 
-/// In the initial version we can have each stage execute serially. In the later stages we can look 
-/// into executing them parallely.
+//! Pipelined execution of various stages to find duplicates of files.
+//! 
+//!   ┌─────────────┐       ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
+//!   │    Walk     │------>│  Aggregate  │------>│ Checksum    │------>│  Full comp  │
+//!   │             │       │             │       │             │       │             │
+//!   └─────────────┘       └─────────────┘       └─────────────┘       └─────────────┘
+//!                                                     |                    |
+//!                                                     └────────────────────└─────────> Report
+//! 
+//! Stage 1: Walk
+//!     - Walk the directory recursively (if specified) and generated the set of files.
+//! Stage 2: Aggregate
+//!     - Aggregate the files by various parameters like file size, type etc.
+//! Stage 3: Checksum
+//!     - For same set of files then calculate the checksum.
+//! Stage 4: Byte by Byte comparison
+//!     - If the checksums are the same for some set of files then do a byte-by-byte comparison.
+//! 
+//! In the initial version we can have each stage execute serially. In the later stages we can look 
+//! into executing them parallely.
 
 use crate::{pipeline::aggregator::Aggregator, report::Report};
 use super::{checksum::Checksum, filecompare::FileCompare, util, walker::Walker};
 use crossbeam_channel::unbounded;
+use std::{collections::HashSet, ffi::OsString, sync::{Arc, Mutex}};
 
 pub struct Executor {
     full_path: &'static str,
@@ -60,8 +59,8 @@ impl Executor {
             full_path,
             recursive,
             filter_file_types: file_types,
-            num_threads: num_threads,
-            do_full_comparison: do_full_comparison,
+            num_threads,
+            do_full_comparison,
         }
     }
 

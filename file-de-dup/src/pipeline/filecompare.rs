@@ -35,7 +35,7 @@ impl FileCompare {
             total_work += file.file_names.len() as u64;
         }
 
-        return total_work;
+        total_work
     }
 
     fn add_to_report(
@@ -52,7 +52,7 @@ impl FileCompare {
         let ret = *num;
         drop(num);
 
-        return ret;
+        ret
     }
 
     fn do_work(
@@ -73,7 +73,7 @@ impl FileCompare {
                 loop {
                     match r_chan.recv_timeout(Duration::from_millis(TIMEOUT_MILLIS)) {
                         Ok(aggregate_file) => {
-                            let mut offset = aggregate_file.offset as usize;
+                            let mut offset = aggregate_file.offset;
                             if offset == aggregate_file.file_size - 1 || aggregate_file.files.len() <= 1 {
                                 let remaining_work = Self::add_to_report(
                                     report.clone(),
@@ -90,7 +90,7 @@ impl FileCompare {
                                 let end = min(offset + CHUNK_SIZE, aggregate_file.file_size - 1);
                                 let reference = &aggregate_file
                                     .files
-                                    .get(0)
+                                    .first()
                                     .unwrap()
                                     .file_ptr[offset..end];
 
@@ -116,14 +116,14 @@ impl FileCompare {
                                         let file_ptr = aggregate_file.files.get(index).unwrap();
                                         let ptr = &file_ptr.file_ptr[offset..end];
                                         byte_comparison.entry(ptr)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(file_ptr.clone());
                                     }
         
                                     for (_, value) in byte_comparison.into_iter() {
                                         let _ = s_chan.send(AggregatedFilesOffset {
                                             files: value,
-                                            offset: offset,
+                                            offset,
                                             file_size: aggregate_file.file_size,
                                         });
                                     }
@@ -193,7 +193,7 @@ impl FileCompare {
             let _ = chan.send(AggregatedFilesOffset {
                 files: file_ptrs,
                 offset: 0,
-                file_size: aggregated_file.file_size as usize
+                file_size: aggregated_file.file_size,
             });
         }        
     }
@@ -203,7 +203,7 @@ impl PipelineStage for FileCompare {
     fn execute(&mut self) {
         let files: Vec<Arc<AggregatedFilesChecksum>> = self.prev_stage_channel.try_iter().collect();
 
-        for chunked_aggregated_files in files.chunks(10_000).into_iter() {
+        for chunked_aggregated_files in files.chunks(10_000) {
             let total_work = Self::get_total_work(chunked_aggregated_files);
 
             let work_done = Arc::new(Mutex::new(0u64));
@@ -237,6 +237,7 @@ struct FilePtr {
     file_name: Arc<OsString>,
 }
 
+#[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
