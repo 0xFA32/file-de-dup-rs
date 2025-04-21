@@ -29,6 +29,7 @@ impl FileCompare {
         }
     }
 
+    /// Get total work we expected from a chunk.
     fn get_total_work(files: &[Arc<AggregatedFilesChecksum>]) -> u64 {
         let mut total_work: u64 = 0;
         for file in files {
@@ -38,6 +39,7 @@ impl FileCompare {
         total_work
     }
 
+    /// Add set of duplicates files to the report.
     fn add_to_report(
         report: Arc<Mutex<Report>>,
         total_work: Arc<Mutex<u64>>,
@@ -55,11 +57,70 @@ impl FileCompare {
         ret
     }
 
+    /// Iterate over aggregate file until we either reach end of file or observe a difference.
+    fn iterate_aggregate_file(
+        aggregate_file: &AggregatedFilesOffset,
+        s_chan: &Sender<AggregatedFilesOffset>,
+    ) -> usize {
+        let mut offset = aggregate_file.offset;
+        while offset < aggregate_file.file_size - 1 {
+            let end = min(offset + CHUNK_SIZE, aggregate_file.file_size - 1);
+            let reference = &aggregate_file
+                .files
+                .first()
+                .unwrap()
+                .file_ptr[offset..end];
+
+            let mut observed_difference = false;
+
+            for index in 0..aggregate_file.files.len() {
+                let ptr = &aggregate_file
+                    .files
+                    .get(index)
+                    .unwrap()
+                    .file_ptr[offset..end];
+
+                if reference != ptr {
+                    observed_difference = true;
+                    break;
+                }
+            }
+
+            if observed_difference {
+
+                let mut byte_comparison: HashMap<&[u8], Vec<Arc<FilePtr>>> = HashMap::new();
+                for index in 0..aggregate_file.files.len() {
+                    let file_ptr = aggregate_file.files.get(index).unwrap();
+                    let ptr = &file_ptr.file_ptr[offset..end];
+                    byte_comparison.entry(ptr)
+                        .or_default()
+                        .push(file_ptr.clone());
+                }
+
+                for (_, value) in byte_comparison.into_iter() {
+                    let _ = s_chan.send(AggregatedFilesOffset {
+                        files: value,
+                        offset,
+                        file_size: aggregate_file.file_size,
+                    });
+                }
+
+                break;
+            }
+
+            offset = end;
+
+        }
+
+        return offset;
+    }
+
+    /// Do the actual work by spawning required number of threads and wait until remaining_work is 0.
     fn do_work(
         &mut self,
         file_compare_receiver_chan: Receiver<AggregatedFilesOffset>,
         file_compare_sender_chan: Sender<AggregatedFilesOffset>,
-        work_done: Arc<Mutex<u64>>,
+        remaining_work: Arc<Mutex<u64>>,
     ) {
         let mut threads = Vec::new();
 
@@ -67,14 +128,13 @@ impl FileCompare {
         for _ in 0..self.num_threads {
             let r_chan = file_compare_receiver_chan.clone();
             let s_chan = file_compare_sender_chan.clone();
-            let report = self.report.clone();
-            let total_work = work_done.clone();
+            let report: Arc<Mutex<Report>> = self.report.clone();
+            let total_work = remaining_work.clone();
             let t= thread::spawn(move || {
                 loop {
                     match r_chan.recv_timeout(Duration::from_millis(TIMEOUT_MILLIS)) {
                         Ok(aggregate_file) => {
-                            let mut offset = aggregate_file.offset;
-                            if offset == aggregate_file.file_size - 1 || aggregate_file.files.len() <= 1 {
+                            if aggregate_file.offset == aggregate_file.file_size - 1 || aggregate_file.files.len() <= 1 {
                                 let remaining_work = Self::add_to_report(
                                     report.clone(),
                                     total_work.clone(),
@@ -86,54 +146,7 @@ impl FileCompare {
                                 }
                             }
 
-                            while offset < aggregate_file.file_size - 1 {
-                                let end = min(offset + CHUNK_SIZE, aggregate_file.file_size - 1);
-                                let reference = &aggregate_file
-                                    .files
-                                    .first()
-                                    .unwrap()
-                                    .file_ptr[offset..end];
-
-                                let mut observed_difference = false;
-        
-                                for index in 0..aggregate_file.files.len() {
-                                    let ptr = &aggregate_file
-                                        .files
-                                        .get(index)
-                                        .unwrap()
-                                        .file_ptr[offset..end];
-
-                                    if reference != ptr {
-                                        observed_difference = true;
-                                        break;
-                                    }
-                                }
-        
-                                if observed_difference {
-
-                                    let mut byte_comparison: HashMap<&[u8], Vec<Arc<FilePtr>>> = HashMap::new();
-                                    for index in 0..aggregate_file.files.len() {
-                                        let file_ptr = aggregate_file.files.get(index).unwrap();
-                                        let ptr = &file_ptr.file_ptr[offset..end];
-                                        byte_comparison.entry(ptr)
-                                            .or_default()
-                                            .push(file_ptr.clone());
-                                    }
-        
-                                    for (_, value) in byte_comparison.into_iter() {
-                                        let _ = s_chan.send(AggregatedFilesOffset {
-                                            files: value,
-                                            offset,
-                                            file_size: aggregate_file.file_size,
-                                        });
-                                    }
-        
-                                    break;
-                                }
-        
-                                offset = end;
-        
-                            }
+                            let offset = Self::iterate_aggregate_file(&aggregate_file, &s_chan);
 
                             if offset == aggregate_file.file_size - 1 {
                                 // If all the files are same then we can add it to the report.
@@ -178,6 +191,7 @@ impl FileCompare {
         }        
     }
 
+    /// Send work to the channel which would be processed by the thread.
     fn send_work(&mut self, chan: Sender<AggregatedFilesOffset>, files: &[Arc<AggregatedFilesChecksum>]) {
         for aggregated_file in files {
             let mut file_ptrs: Vec<Arc<FilePtr>> = Vec::new();

@@ -25,6 +25,7 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// Walk dir non-recursively and add it to channel.
     fn walk_non_recursive(&self) {
         if let Ok(paths) = fs::read_dir(self.full_path) {
             for path in paths {
@@ -52,6 +53,7 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// Walk dir recursively and add it to the channel.
     fn walk_recursive(&self, path_bufs: Vec<PathBuf>) {
         path_bufs.into_par_iter().for_each_with(self.next_stage_channel.clone(), |ch, p| {
             if let Ok(metadata) = fs::metadata(p.clone()) {

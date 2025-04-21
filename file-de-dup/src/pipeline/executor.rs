@@ -38,6 +38,8 @@ pub trait PipelineStage {
     fn execute(&mut self);
     
     /// Returns true if the stage is completed. False, otherwise.
+    /// 
+    /// TODO: Use it make it async.
     fn is_completed(&self) -> bool;
 }
 

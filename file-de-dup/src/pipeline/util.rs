@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 
+/// Get file type.
 pub fn get_file_type(file_name: &OsString) -> u8 {
     if let Some(ext) = file_name
         .as_os_str()
@@ -12,6 +13,8 @@ pub fn get_file_type(file_name: &OsString) -> u8 {
     10
 }
 
+/// Get file type from extension. Uses an internal u8 value to distinguish between various
+/// file types.
 pub fn get_file_type_from_extension(ext: &str) -> u8 {
     match ext {
         "gif" => 0,
