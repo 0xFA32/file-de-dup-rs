@@ -26,7 +26,7 @@ Options:
           Print version
 ```
 
-*Features*
+**Features**
 
 - Option to filter by file type.
 - Option to check for duplicates recursively within the directory.
@@ -57,7 +57,7 @@ Duplicates of file3:
   - "/home/mukilesh/test_data/test_5/test_10/test.c"
 ```
 
-*Explaination:* There are no assumptions about file names, so the output assigns an arbitrary file name like file<index> and lists all of the duplicate files.
+**Explaination:** There are no assumptions about file names, so the output assigns an arbitrary file name like file<index> and lists all of the duplicate files.
 
 ## Design
 
@@ -65,12 +65,14 @@ The tool uses a pipeline design to execute various stages in parallel. This make
 
 ### Pipeline
 
+```
    ┌─────────────┐       ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
    │    Walk     │------>│  Aggregate  │------>│ Checksum    │------>│  Full comp  │
    │             │       │             │       │             │       │             │
    └─────────────┘       └─────────────┘       └─────────────┘       └─────────────┘
                                                      |                    |
                                                      └────────────────────└─────────> Report
+```
 
 The diagram above depicts the various stages of the pipeline, and the sections below provide a detailed explanation of each stage.
 
