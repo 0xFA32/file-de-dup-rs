@@ -108,7 +108,7 @@ impl<'a> PipelineStage for Aggregator<'a> {
 #[cfg(test)]
 mod tests {
 
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use crossbeam_channel::unbounded;
     use crate::pipeline::executor::{AggregateFiles, PipelineStage};
     use super::{Aggregator, util};

@@ -240,15 +240,12 @@ struct FilePtr {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use crossbeam_channel::unbounded;
-    use crate::pipeline::executor::{AggregateFiles, AggregatedFilesChecksum, FileMetadata, PipelineStage};
+    use crate::pipeline::executor::{AggregatedFilesChecksum, PipelineStage};
     use crate::report::Report;
-    use crate::pipeline::util;
     use super::FileCompare;
-    use std::ffi::OsString;
     use std::sync::{Arc, Mutex};
-    use std::collections::HashSet;
 
     #[test]
     fn file_compare_same_file_test() {
