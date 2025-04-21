@@ -2,6 +2,8 @@
 
 CLI command to find duplicate files in a given directory.
 
+**Note:** This project was built for learning purposes and is intentionally over-engineered to explore various design ideas.
+
 ## Usage
 
 ```
@@ -96,7 +98,7 @@ The checksum is computed by reading the file in 16KB chunks and feeding the data
 
 This is the final stage of the pipeline, responsible for performing a byte-by-byte comparison on a set of files. The tool executes this stage only if explicitly enabled by the user, as it is an expensive operation. Since byte-by-byte comparison is expensive, it is deferred until the final list of potential duplicates is available.
 
-This stage is more complex than the others. It begins by chunking the list of aggregated files and performing comparisons serially for each chunk (the reasoning behind chunking is explained below). For each chunk, the stage creates a memory map (mmap) for each file starting at offset 0, and spawns a number of worker threads along with a shared work channel.
+It begins by chunking the list of aggregated files and performing comparisons serially for each chunk (the reasoning behind chunking is explained below). For each chunk, the stage creates a memory map (mmap) for each file starting at offset 0, and spawns a number of worker threads along with a shared work channel.
 
 Each thread processes a list of files that need to be compared byte-by-byte. It starts by comparing a byte slice of size `min(4096, file_size - 1)`. If all files in the group match at that offset, the comparison continues with the next section of the file. If differences are found, the files are grouped by their differing byte slices, and new work items are enqueued to the channel with the updated offset. Since the files have already been grouped by size, we expect the offset progression to remain aligned across all files in a given group.
 
